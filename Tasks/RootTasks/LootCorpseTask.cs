@@ -37,6 +37,7 @@ public sealed class LootCorpseTask : BotTask
     private bool _bagChecked;
     private bool _waitedNextToCorpse;
     private bool _bagOpenedForGold;
+    private bool _corpseThrown;
 
     private static readonly TimeSpan MaxLootTime = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan CorpseSettleDelay = TimeSpan.FromMilliseconds(400);
