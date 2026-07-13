@@ -230,8 +230,9 @@ public partial class MainForm : Form
             _controller.Start();
         });
         var btnStop = MakeButton("Stop Bot", (s, e) => _controller.Stop());
+        var btnReset = MakeButton("Reset Bot", (s, e) => _controller.ResetState());
         var btnRecord = MakeButton("Toggle Record", (s, e) => _controller.ToggleRecord());
-        left.Controls.AddRange([btnInit, btnStart, btnStop, btnRecord]);
+        left.Controls.AddRange([btnInit, btnStart, btnStop, btnReset, btnRecord]);
 
         _attackMonstersChk = new CheckBox
         {

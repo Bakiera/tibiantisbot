@@ -145,6 +145,26 @@ public sealed class InputQueue : IDisposable
         }
     }
 
+    public void ClearAll()
+    {
+        lock (_sync)
+        {
+            foreach (var entry in _queue)
+            {
+                entry.Handle.MarkCancelled();
+                entry.Tcs?.TrySetResult(false);
+            }
+            _queue.Clear();
+
+            if (_running != null)
+            {
+                _running.Value.Cts.Cancel();
+                _running.Value.Entry.Handle.MarkCancelled();
+                _running.Value.Entry.Tcs?.TrySetResult(false);
+            }
+        }
+    }
+
     public void Dispose()
     {
         if (_disposed) return;
