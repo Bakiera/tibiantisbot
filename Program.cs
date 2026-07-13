@@ -11,7 +11,7 @@ internal static class Program
     [STAThread]
     static void Main()
     {
-        Console.WriteLine("[TBot] Build 2026-07-08b — step retry fix + path diagnostics");
+        Console.WriteLine("[TBot] Build 2026-07-13a — mana crash fix + bot state reset");
         Application.SetCompatibleTextRenderingDefault(false);
 
         var ctx = new BotContext();

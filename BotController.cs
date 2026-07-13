@@ -190,6 +190,13 @@ public sealed class BotController
         _brain.StopBot();
         StatusChanged?.Invoke($"Stopped...");
     }
+
+    public void ResetState()
+    {
+        _brain.ResetState();
+        StatusChanged?.Invoke("State reset");
+    }
+
     public void ToggleRecord() 
     {
         Ctx.RecordMode = !Ctx.RecordMode;

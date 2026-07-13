@@ -163,9 +163,27 @@ public sealed class BotBrain
 
     public void StopBot()
     {
-        if (_isRunning) return;
+        if (!_isRunning) return;
 
         _isRunning = false;
         Console.WriteLine("[Bot] Stopped.");
+    }
+
+    public void ResetState()
+    {
+        _orchestrator.Reset();
+        Svc.Queue.ClearAll();
+        Svc.PathRepo.Reset();
+        _manaAnalyzer.Reset();
+        UseUhTask.ResetCooldown();
+
+        Ctx.Corpses.Clear();
+        Ctx.FailedAttacks.Clear();
+        Ctx.IgnoredCreatures.Clear();
+        Ctx.Creatures.Clear();
+        Ctx.AvoidTiles.Clear();
+        Ctx.Mana = 100;
+
+        Console.WriteLine("[Bot] State reset — path index 0, tasks cleared.");
     }
 }

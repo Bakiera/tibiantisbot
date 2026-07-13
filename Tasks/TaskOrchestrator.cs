@@ -37,6 +37,15 @@ public sealed class TaskOrchestrator
         }
     }
 
+    public void Reset()
+    {
+        if (_rootTask != null)
+        {
+            _queue.RemoveByOwner(_rootTask);
+            _rootTask = null;
+        }
+    }
+
     public void Tick(BotContext ctx)
     {
         if (_rootTask == null)

@@ -11,7 +11,10 @@ public class ManaAnalyzer
     private Rect? _cachedManaRect;
     private readonly string templatePath = "Assets/Templates/Mana.png";
     private const int ManaBarWidth = 86;
+    private const double MinMatchConfidence = 0.65;
     private readonly int[] ManaColor = [130];//[107, 115, 97, 94];
+    private int _lastManaPercent = 100;
+    private int _missCount;
 
     public ManaAnalyzer()
     {
@@ -24,7 +27,14 @@ public class ManaAnalyzer
     {
         var rect = GetManaRect(frame);
         if (rect == null)
-            throw new InvalidOperationException("Could not locate minimap on screen.");
+        {
+            _missCount++;
+            if (_missCount % 30 == 1)
+                Console.WriteLine($"[ManaAnalyzer] Mana bar not located, using last value ({_lastManaPercent}%)");
+            return _lastManaPercent;
+        }
+
+        _missCount = 0;
 
         using var mana = new Mat(frame, rect.Value);
         //Cv2.ImShow("mana Test", mana);
@@ -55,7 +65,8 @@ public class ManaAnalyzer
         }
 
         int percent = (int)Math.Round((double)filled / ManaBarWidth * 100);
-        return Math.Clamp(percent, 0, 100);
+        _lastManaPercent = Math.Clamp(percent, 0, 100);
+        return _lastManaPercent;
     }
 
     private Rect? GetManaRect(Mat frame)
@@ -67,11 +78,14 @@ public class ManaAnalyzer
         Cv2.MatchTemplate(frame, _template, result, TemplateMatchModes.CCoeffNormed);
         Cv2.MinMaxLoc(result, out _, out double maxVal, out _, out Point maxLoc);
 
-        if (maxVal < 0.9)
+        if (maxVal < MinMatchConfidence)
         {
             Console.WriteLine($"[GetManaRect] Mana not found (conf={maxVal:F2})");
             return null;
         }
+
+        if (maxVal < 0.9)
+            Console.WriteLine($"[GetManaRect] Low-confidence mana match (conf={maxVal:F2}), using anyway");
 
         var rect = new Rect(maxLoc.X + 19, maxLoc.Y + 6, ManaBarWidth, 1);
 
@@ -79,6 +93,9 @@ public class ManaAnalyzer
         return rect;
     }
 
-
-    private void Reset() => _cachedManaRect = null;
+    public void Reset()
+    {
+        _cachedManaRect = null;
+        _missCount = 0;
+    }
 }
