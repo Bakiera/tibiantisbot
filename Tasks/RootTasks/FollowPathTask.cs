@@ -59,10 +59,20 @@ public sealed class FollowPathTask : BotTask
         {
             Console.WriteLine($"[FollowPath] Subtask '{_currentSubTask.Name}' completed.");
 
+            var completedWp = _repo.Current;
+
             if (_currentSubTask.Failed)
             {
-                Console.WriteLine("[FollowPath] Subtask failed, rewinding path.");
-                _repo.GoBackOne();
+                if (completedWp?.Type is WaypointType.Step or WaypointType.RightClick or WaypointType.UseItem)
+                {
+                    Console.WriteLine(
+                        $"[FollowPath] Subtask failed, retrying waypoint {_repo.CurrentIndex + 1}/{_repo.Waypoints.Count}");
+                }
+                else
+                {
+                    Console.WriteLine("[FollowPath] Subtask failed, rewinding path.");
+                    _repo.GoBackOne();
+                }
             }
             else
             {
@@ -70,8 +80,17 @@ public sealed class FollowPathTask : BotTask
                     _repo.Reset();
             }
 
+            var nextWp = _repo.Current;
+            var skipDelay = !_currentSubTask.Failed
+                && completedWp?.Type == WaypointType.Move
+                && nextWp?.Type is WaypointType.Step or WaypointType.RightClick or WaypointType.UseItem
+                && completedWp.X == nextWp.X
+                && completedWp.Y == nextWp.Y
+                && completedWp.Z == nextWp.Z;
+
             _currentSubTask = null;
-            _waitUntil = DateTime.UtcNow + TransitionDelay;
+            if (!skipDelay)
+                _waitUntil = DateTime.UtcNow + TransitionDelay;
         }
         // Note: This task never completes on its own - it runs until preempted
     }

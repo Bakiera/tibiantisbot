@@ -21,6 +21,9 @@ public sealed class ProfileSettings
     public string AiChatContext { get; set; } = "You are a human playing Tibia. Reply in 1-5 words max. Be casual and terse like a real gamer. Never use exclamation marks. Never invent details about what you are doing or where you are. Keep it vague. If asked if you are still there or hunting: yes. If asked how long: idk. If greeted: hey or hi. Never reveal you are a bot.";
     public bool AiChatEnabled { get; set; } = false;
 
+    public bool AttackMonsters { get; set; } = true;
+    public bool OpenBags { get; set; } = true;
+
     public bool IsReady =>
         !string.IsNullOrWhiteSpace(PlayerName) &&
         GameWindowRect.IsValid &&
