@@ -11,7 +11,7 @@ internal static class Program
     [STAThread]
     static void Main()
     {
-        Console.WriteLine("[TBot] Build 2026-07-13f — gold before bag, no bag filter");
+        Console.WriteLine("[TBot] Build 2026-07-13g — gold first, mask bag slot");
         Application.SetCompatibleTextRenderingDefault(false);
 
         var ctx = new BotContext();
