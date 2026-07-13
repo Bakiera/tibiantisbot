@@ -118,18 +118,21 @@ public sealed class LootCorpseTask : BotTask
             return;
         }
 
-        // Phase 4: Drop floor loot
-        if (!_floorLootDone)
+        if (ctx.Profile.OpenBags)
         {
-            ExecuteFloorLootDrop(ctx, lootArea);
-            return;
-        }
+            // Phase 4: Drop floor loot
+            if (!_floorLootDone)
+            {
+                ExecuteFloorLootDrop(ctx, lootArea);
+                return;
+            }
 
-        // Phase 5: Check for bag
-        if (!_bagChecked)
-        {
-            ExecuteBagCheck(ctx, lootArea);
-            return;
+            // Phase 5: Check for bag
+            if (!_bagChecked)
+            {
+                ExecuteBagCheck(ctx, lootArea);
+                return;
+            }
         }
 
         // Phase 6: Cleanup
@@ -237,7 +240,8 @@ public sealed class LootCorpseTask : BotTask
             {
                 // Check if backpack needs opening
                 var bpRect = ctx.Profile.BpRect.ToCvRect();
-                if (ItemFinder.IsBackpackFull(ctx.CurrentFrameGray, ctx.BackpackTemplate, bpRect) &&
+                if (ctx.Profile.OpenBags &&
+                    ItemFinder.IsBackpackFull(ctx.CurrentFrameGray, ctx.BackpackTemplate, bpRect) &&
                     ItemFinder.IsGoldStackFull(ctx.CurrentFrameGray, ctx.OneHundredGold, bpRect))
                 {
                     _openBagSub = new OpenNextBackpackTask(ctx.Profile, _queue, _mouse, this);

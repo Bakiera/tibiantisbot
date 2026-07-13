@@ -130,7 +130,7 @@ public sealed class BotBrain
             next = new UseUhTask(Svc.Queue, Svc.Mouse);
         }
         // 1. Combat
-        else if (Ctx.Creatures.Count > 0)
+        else if (Ctx.Creatures.Count > 0 && Ctx.Profile.AttackMonsters)
         {
             next = new AttackClosestCreatureTask(Svc.Queue, Svc.Keyboard, Svc.Mouse);
         }

@@ -20,8 +20,11 @@ public sealed class UseItemOnTileTask : SubTask
     private bool _usedItem;
     private (int X, int Y, int Z) _startPos;
 
-    private int _ticksWaiting;
-    private const int MaxWaitTicks = 20;
+    private DateTime? _waitStarted;
+    private DateTime _lastProgressLog = DateTime.MinValue;
+
+    private static readonly TimeSpan MaxWait = TimeSpan.FromSeconds(3);
+    private static readonly TimeSpan ProgressLogInterval = TimeSpan.FromMilliseconds(1500);
 
     private int _dragAttempts;
     private const int MaxDragAttempts = 3;
@@ -56,6 +59,9 @@ public sealed class UseItemOnTileTask : SubTask
     protected override void OnStart(BotContext ctx)
     {
         _startPos = (ctx.PlayerPosition.X, ctx.PlayerPosition.Y, ctx.PlayerPosition.Z);
+        var (tx, ty) = GetTargetTile();
+        Console.WriteLine(
+            $"[{Name}] At ({_wp.X},{_wp.Y},Z={_startPos.Z}), using {_wp.Item} on {_wp.Dir} toward ({tx},{ty}), waiting for Z change...");
     }
 
     protected override void Execute(BotContext ctx)
@@ -90,7 +96,7 @@ public sealed class UseItemOnTileTask : SubTask
             _didDragCleanup = false;
             _itemSelected = false;
             _usedItem = false;
-            _ticksWaiting = 0;
+            _waitStarted = null;
             return;
         }
 
@@ -136,13 +142,12 @@ public sealed class UseItemOnTileTask : SubTask
 
             _pending = _queue.Enqueue(new LeftClickTileAction(_mouse, slot, ctx.Profile), _owner);
             _usedItem = true;
-            Console.WriteLine($"[{Name}] Used on tile {slot}, waiting for Z change...");
+            _waitStarted = DateTime.UtcNow;
+            Console.WriteLine($"[{Name}] Used on tile {slot}, waiting for Z change from {_startPos.Z}...");
             return;
         }
 
         // Phase 3: Wait for Z change
-        _ticksWaiting++;
-
         int currentZ = ctx.PlayerPosition.Z;
 
         // Success: Z decreased by 1
@@ -153,8 +158,16 @@ public sealed class UseItemOnTileTask : SubTask
             return;
         }
 
+        var elapsed = DateTime.UtcNow - _waitStarted!.Value;
+        if (elapsed >= ProgressLogInterval && DateTime.UtcNow - _lastProgressLog >= ProgressLogInterval)
+        {
+            _lastProgressLog = DateTime.UtcNow;
+            Console.WriteLine(
+                $"[{Name}] Still waiting for Z change ({(int)elapsed.TotalMilliseconds}ms) — player Z={currentZ}, started Z={_startPos.Z}");
+        }
+
         // Timeout handling
-        if (_ticksWaiting > MaxWaitTicks)
+        if (elapsed > MaxWait)
         {
             // Rope special case: try cleanup before failing
             if (_wp.Item == Item.Rope && !_didDragCleanup)
@@ -164,14 +177,29 @@ public sealed class UseItemOnTileTask : SubTask
                 _dragAttempts = 0;
                 _itemSelected = false;
                 _usedItem = false;
-                _ticksWaiting = 0;
+                _waitStarted = null;
                 _nextDragAllowed = DateTime.UtcNow;
                 return;
             }
 
-            Fail("Z did not change (timeout)");
+            var (tx, ty) = GetTargetTile();
+            Fail(
+                $"Z did not change after {_wp.Item} on {_wp.Dir} — player=({_startPos.X},{_startPos.Y},Z={currentZ}), target tile=({tx},{ty})");
             _queue.Enqueue(new PressKeyAction(_keyboard, KeyMover.VK_ESCAPE, ctx.GameWindowHandle), _owner);
         }
+    }
+
+    private (int X, int Y) GetTargetTile()
+    {
+        var (tx, ty) = (_wp.X, _wp.Y);
+        switch (_wp.Dir)
+        {
+            case Direction.North: ty -= 1; break;
+            case Direction.South: ty += 1; break;
+            case Direction.East: tx += 1; break;
+            case Direction.West: tx -= 1; break;
+        }
+        return (tx, ty);
     }
 
     private static (int X, int Y) ComputeTileSlot(Waypoint wp, BotContext ctx)

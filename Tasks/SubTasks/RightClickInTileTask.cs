@@ -15,8 +15,11 @@ public sealed class RightClickInTileTask : SubTask
     private ActionHandle? _pending;
     private bool _clicked;
     private (int X, int Y, int Z) _startPos;
-    private int _ticksWaiting;
-    private const int MaxWaitTicks = 20;
+    private DateTime? _waitStarted;
+    private DateTime _lastProgressLog = DateTime.MinValue;
+
+    private static readonly TimeSpan MaxWait = TimeSpan.FromSeconds(3);
+    private static readonly TimeSpan ProgressLogInterval = TimeSpan.FromMilliseconds(1500);
 
     /// <summary>
     /// True once click is enqueued until completion - prevents preemption
@@ -36,6 +39,9 @@ public sealed class RightClickInTileTask : SubTask
     protected override void OnStart(BotContext ctx)
     {
         _startPos = (ctx.PlayerPosition.X, ctx.PlayerPosition.Y, ctx.PlayerPosition.Z);
+        var (tx, ty) = GetTargetTile();
+        Console.WriteLine(
+            $"[{Name}] At ({_wp.X},{_wp.Y},Z={_startPos.Z}), right-clicking {_wp.Dir} toward ({tx},{ty}), waiting for Z change...");
     }
 
     protected override void Execute(BotContext ctx)
@@ -45,7 +51,8 @@ public sealed class RightClickInTileTask : SubTask
             if (!_pending.IsCompleted) return;
             _pending = null;
             _clicked = true;
-            Console.WriteLine($"[{Name}] Clicked, waiting for Z change...");
+            _waitStarted = DateTime.UtcNow;
+            Console.WriteLine($"[{Name}] Clicked, waiting for Z change from {_startPos.Z}...");
             return;
         }
 
@@ -57,13 +64,23 @@ public sealed class RightClickInTileTask : SubTask
                 return;
             }
 
-            _ticksWaiting++;
-            if (_ticksWaiting > MaxWaitTicks)
-                Fail("Z did not change (timeout)");
+            var elapsed = DateTime.UtcNow - _waitStarted!.Value;
+            if (elapsed >= ProgressLogInterval && DateTime.UtcNow - _lastProgressLog >= ProgressLogInterval)
+            {
+                _lastProgressLog = DateTime.UtcNow;
+                Console.WriteLine(
+                    $"[{Name}] Still waiting for Z change ({(int)elapsed.TotalMilliseconds}ms) — player Z={ctx.PlayerPosition.Z}, started Z={_startPos.Z}");
+            }
+
+            if (elapsed > MaxWait)
+            {
+                var (tx, ty) = GetTargetTile();
+                Fail(
+                    $"Z did not change after {_wp.Dir} right-click — player=({_startPos.X},{_startPos.Y},Z={ctx.PlayerPosition.Z}), target tile=({tx},{ty})");
+            }
             return;
         }
 
-        // Require exact alignment
         if (ctx.PlayerPosition.X != _wp.X || ctx.PlayerPosition.Y != _wp.Y)
         {
             Fail($"Incorrect position, expected ({_wp.X},{_wp.Y})");
@@ -80,10 +97,22 @@ public sealed class RightClickInTileTask : SubTask
             Console.WriteLine($"[{Name}] Success: Z changed from {_startPos.Z} to {ctx.PlayerPosition.Z}");
     }
 
+    private (int X, int Y) GetTargetTile()
+    {
+        var (tx, ty) = (_wp.X, _wp.Y);
+        switch (_wp.Dir)
+        {
+            case Direction.North: ty -= 1; break;
+            case Direction.South: ty += 1; break;
+            case Direction.East: tx += 1; break;
+            case Direction.West: tx -= 1; break;
+        }
+        return (tx, ty);
+    }
+
     private static (int X, int Y) ComputeTileSlot(Waypoint wp, BotContext ctx)
     {
-        int tx = wp.X;
-        int ty = wp.Y;
+        var (tx, ty) = (wp.X, wp.Y);
 
         switch (wp.Dir)
         {

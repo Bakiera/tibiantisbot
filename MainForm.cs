@@ -223,10 +223,34 @@ public partial class MainForm : Form
             await _controller.InitializeAsync();
         });
 
-        var btnStart = MakeButton("Start Bot", (s, e) => _controller.Start());
+        var btnStart = MakeButton("Start Bot", (s, e) =>
+        {
+            ApplyUiToProfile();
+            ProfileStore.Save(Profile);
+            _controller.Start();
+        });
         var btnStop = MakeButton("Stop Bot", (s, e) => _controller.Stop());
         var btnRecord = MakeButton("Toggle Record", (s, e) => _controller.ToggleRecord());
         left.Controls.AddRange([btnInit, btnStart, btnStop, btnRecord]);
+
+        _attackMonstersChk = new CheckBox
+        {
+            Text = "Attack monsters",
+            Checked = Profile.AttackMonsters,
+            ForeColor = Color.White,
+            BackColor = Color.Transparent,
+            AutoSize = true
+        };
+        _openBagsChk = new CheckBox
+        {
+            Text = "Open bags (off = gold + food only)",
+            Checked = Profile.OpenBags,
+            ForeColor = Color.White,
+            BackColor = Color.Transparent,
+            AutoSize = true
+        };
+        left.Controls.Add(_attackMonstersChk);
+        left.Controls.Add(_openBagsChk);
 
         var right = BuildProfilePanel();
         layout.Controls.Add(left, 0, 0);
@@ -541,6 +565,8 @@ public partial class MainForm : Form
     private TextBox _discordWebHookUrl = null!;
     private TextBox _aiContextTxt = null!;
     private CheckBox _aiChatEnabledChk = null!;
+    private CheckBox _attackMonstersChk = null!;
+    private CheckBox _openBagsChk = null!;
 
     private System.Windows.Forms.Control BuildProfilePanel()
     {
@@ -643,6 +669,8 @@ public partial class MainForm : Form
         Profile.DiscordWebhookUrl = _discordWebHookUrl.Text.Trim();
         Profile.AiChatContext = _aiContextTxt.Text.Trim();
         Profile.AiChatEnabled = _aiChatEnabledChk.Checked;
+        Profile.AttackMonsters = _attackMonstersChk.Checked;
+        Profile.OpenBags = _openBagsChk.Checked;
     }
 
     private void UpdateMissingLabel(string[] missing)
