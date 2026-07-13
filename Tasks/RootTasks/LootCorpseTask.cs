@@ -22,12 +22,14 @@ public sealed class LootCorpseTask : BotTask
     private (int x, int y, int z)? _walkGoal;
     private OpenNextBackpackTask? _openBagSub;
     private ActionHandle? _pending;
-    private int _afterDelay; // delay to apply after action completes
+    private int _afterDelay;
 
     private DateTime _nextStep = DateTime.MinValue;
     private DateTime _startedAt;
+    private DateTime _corpseOpenedAt = DateTime.MinValue;
 
     // Phase flags
+    private bool _waitingCorpseOpen;
     private bool _opened;
     private bool _ate;
     private bool _goldLooted;
@@ -36,12 +38,14 @@ public sealed class LootCorpseTask : BotTask
     private bool _waitedNextToCorpse;
     private bool _corpseThrown;
 
-    private static readonly TimeSpan MaxLootTime = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan MaxLootTime = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan CorpseSettleDelay = TimeSpan.FromMilliseconds(400);
     private static readonly Random _rng = new();
 
     private const int ShortDelay = 100;
     private const int MediumDelay = 300;
     private const int LongDelay = 500;
+    private const double LootMatchConfidence = 0.80;
 
     public LootCorpseTask(InputQueue queue, KeyMover keyboard, MouseMover mouse)
     {
@@ -73,16 +77,23 @@ public sealed class LootCorpseTask : BotTask
             return;
         }
 
-        // Wait for pending action, then apply post-action delay
         if (_pending != null)
         {
             if (!_pending.IsCompleted) return;
             _pending = null;
+
+            if (_waitingCorpseOpen)
+            {
+                _waitingCorpseOpen = false;
+                _opened = true;
+                _corpseOpenedAt = DateTime.UtcNow;
+                Console.WriteLine("[Loot] Corpse opened, scanning for loot...");
+            }
+
             _nextStep = RandomDelayFrom(_afterDelay);
-            return; // wait for fresh frame + delay
+            return;
         }
 
-        // Timeout guard
         if (DateTime.UtcNow - _startedAt > MaxLootTime)
         {
             Console.WriteLine($"[Loot] Timeout, skipping corpse at {_targetCorpse.X},{_targetCorpse.Y}");
@@ -91,51 +102,45 @@ public sealed class LootCorpseTask : BotTask
             return;
         }
 
-        // Delay between actions
         if (DateTime.UtcNow < _nextStep)
             return;
 
-        // Phase 1: Walk to corpse and open it
         if (!_opened)
         {
             ExecuteWalkAndOpen(ctx);
             return;
         }
 
-        using var lootArea = new Mat(ctx.CurrentFrameGray, ctx.Profile.LootRect.ToCvRect());
+        if (DateTime.UtcNow - _corpseOpenedAt < CorpseSettleDelay)
+            return;
 
-        // Phase 2: Eat food
         if (!_ate)
         {
-            ExecuteEating(ctx, lootArea);
+            ExecuteEating(ctx);
             return;
         }
 
-        // Phase 3: Loot gold
         if (!_goldLooted)
         {
-            ExecuteGoldLooting(ctx, lootArea);
+            ExecuteGoldLooting(ctx);
             return;
         }
 
         if (ctx.Profile.OpenBags)
         {
-            // Phase 4: Drop floor loot
             if (!_floorLootDone)
             {
-                ExecuteFloorLootDrop(ctx, lootArea);
+                ExecuteFloorLootDrop(ctx);
                 return;
             }
 
-            // Phase 5: Check for bag
             if (!_bagChecked)
             {
-                ExecuteBagCheck(ctx, lootArea);
+                ExecuteBagCheck(ctx);
                 return;
             }
         }
 
-        // Phase 6: Cleanup
         ExecuteCleanup(ctx);
     }
 
@@ -172,11 +177,9 @@ public sealed class LootCorpseTask : BotTask
             return;
         }
 
-        // Adjacent - clear walk state
         _walkSub = null;
         _walkGoal = null;
 
-        // Settle delay
         if (!_waitedNextToCorpse)
         {
             _waitedNextToCorpse = true;
@@ -184,42 +187,41 @@ public sealed class LootCorpseTask : BotTask
             return;
         }
 
-        // Don't loot too soon after death
         if (DateTime.UtcNow - _targetCorpse.DetectedAt < TimeSpan.FromMilliseconds(1000))
         {
             _nextStep = RandomDelayFrom(ShortDelay);
             return;
         }
 
-        // Open corpse
         var relTile = (_targetCorpse.X - ctx.PlayerPosition.X, _targetCorpse.Y - ctx.PlayerPosition.Y);
         _pending = _queue.Enqueue(new RightClickTileAction(_mouse, relTile, ctx.Profile), this);
         _afterDelay = LongDelay;
-        _opened = true;
+        _waitingCorpseOpen = true;
     }
 
-    private void ExecuteEating(BotContext ctx, Mat lootArea)
+    private void ExecuteEating(BotContext ctx)
     {
+        var lootRect = ctx.Profile.LootRect.ToCvRect();
+
         foreach (var food in ctx.FoodTemplates)
         {
-            var loc = ItemFinder.FindItemInArea(lootArea, food, new Rect(0, 0, lootArea.Width, lootArea.Height));
-            if (loc != null)
-            {
-                _pending = _queue.Enqueue(
-                    new RightClickScreenAction(_mouse, ctx.Profile.LootRect.X + loc.Value.X, ctx.Profile.LootRect.Y + loc.Value.Y), this);
-                _afterDelay = MediumDelay;
-                break;
-            }
+            var loc = ItemFinder.FindItemInArea(
+                ctx.CurrentFrameGray, food, lootRect, LootMatchConfidence, out var conf);
+            if (loc == null) continue;
+
+            Console.WriteLine($"[Loot] Eating food at ({loc.Value.X},{loc.Value.Y}), conf={conf:F2}");
+            _pending = _queue.Enqueue(new RightClickScreenAction(_mouse, loc.Value.X, loc.Value.Y), this);
+            _afterDelay = MediumDelay;
+            return;
         }
 
+        Console.WriteLine("[Loot] No food found in corpse window");
         _ate = true;
-        if (_pending == null)
-            _nextStep = RandomDelayFrom(MediumDelay);
+        _nextStep = RandomDelayFrom(ShortDelay);
     }
 
-    private void ExecuteGoldLooting(BotContext ctx, Mat lootArea)
+    private void ExecuteGoldLooting(BotContext ctx)
     {
-        // Handle backpack subtask
         if (_openBagSub != null)
         {
             _openBagSub.Tick(ctx);
@@ -231,54 +233,52 @@ public sealed class LootCorpseTask : BotTask
             return;
         }
 
-        bool backpackEmpty = ItemFinder.IsBackpackEmpty(ctx.CurrentFrameGray, ctx.BackpackTemplate, ctx.Profile.BpRect.ToCvRect());
+        var lootRect = ctx.Profile.LootRect.ToCvRect();
+        var bpRect = ctx.Profile.BpRect.ToCvRect();
+        bool backpackEmpty = ItemFinder.IsBackpackEmpty(ctx.CurrentFrameGray, ctx.BackpackTemplate, bpRect);
 
         foreach (var loot in ctx.LootTemplates)
         {
-            var loc = ItemFinder.FindItemInArea(lootArea, loot, new Rect(0, 0, lootArea.Width, lootArea.Height));
-            if (loc != null)
+            var loc = ItemFinder.FindItemInArea(
+                ctx.CurrentFrameGray, loot, lootRect, LootMatchConfidence, out var conf);
+            if (loc == null) continue;
+
+            if (ctx.Profile.OpenBags &&
+                ItemFinder.IsBackpackFull(ctx.CurrentFrameGray, ctx.BackpackTemplate, bpRect) &&
+                ItemFinder.IsGoldStackFull(ctx.CurrentFrameGray, ctx.OneHundredGold, bpRect))
             {
-                // Check if backpack needs opening
-                var bpRect = ctx.Profile.BpRect.ToCvRect();
-                if (ctx.Profile.OpenBags &&
-                    ItemFinder.IsBackpackFull(ctx.CurrentFrameGray, ctx.BackpackTemplate, bpRect) &&
-                    ItemFinder.IsGoldStackFull(ctx.CurrentFrameGray, ctx.OneHundredGold, bpRect))
-                {
-                    _openBagSub = new OpenNextBackpackTask(ctx.Profile, _queue, _mouse, this);
-                    _openBagSub.Tick(ctx);
-                    return;
-                }
-
-                int fromX = ctx.Profile.LootRect.X + loc.Value.X;
-                int fromY = ctx.Profile.LootRect.Y + loc.Value.Y;
-
-                int dropX = backpackEmpty
-                    ? ctx.Profile.BpRect.X + ctx.Profile.BpRect.W - 20
-                    : ctx.Profile.BpRect.X + 20;
-                int dropY = backpackEmpty
-                    ? ctx.Profile.BpRect.Y + ctx.Profile.BpRect.H - 20
-                    : ctx.Profile.BpRect.Y + 20;
-
-                _pending = _queue.Enqueue(new CtrlDragAction(_mouse, fromX, fromY, dropX, dropY), this);
-                _afterDelay = MediumDelay;
+                _openBagSub = new OpenNextBackpackTask(ctx.Profile, _queue, _mouse, this);
+                _openBagSub.Tick(ctx);
                 return;
             }
+
+            int dropX = backpackEmpty
+                ? ctx.Profile.BpRect.X + ctx.Profile.BpRect.W - 20
+                : ctx.Profile.BpRect.X + 20;
+            int dropY = backpackEmpty
+                ? ctx.Profile.BpRect.Y + ctx.Profile.BpRect.H - 20
+                : ctx.Profile.BpRect.Y + 20;
+
+            Console.WriteLine($"[Loot] Dragging gold from ({loc.Value.X},{loc.Value.Y}) to bp ({dropX},{dropY}), conf={conf:F2}");
+            _pending = _queue.Enqueue(new CtrlDragAction(_mouse, loc.Value.X, loc.Value.Y, dropX, dropY), this);
+            _afterDelay = MediumDelay;
+            return;
         }
 
+        Console.WriteLine("[Loot] No gold found in corpse window");
         _goldLooted = true;
         _nextStep = RandomDelayFrom(ShortDelay);
     }
 
-    private void ExecuteFloorLootDrop(BotContext ctx, Mat lootArea)
+    private void ExecuteFloorLootDrop(BotContext ctx)
     {
+        var lootRect = ctx.Profile.LootRect.ToCvRect();
+
         foreach (var template in ctx.FloorLootTemplates)
         {
-            var loc = ItemFinder.FindItemInArea(lootArea, template, new Rect(0, 0, lootArea.Width, lootArea.Height));
+            var loc = ItemFinder.FindItemInArea(ctx.CurrentFrameGray, template, lootRect, LootMatchConfidence);
             if (loc != null)
             {
-                int fromX = ctx.Profile.LootRect.X + loc.Value.X;
-                int fromY = ctx.Profile.LootRect.Y + loc.Value.Y;
-
                 var walkmap = NavigationHelper.BuildWalkmapWithBlocked(ctx, ctx.Corpses);
                 var dropTile = NavigationHelper.PickBestAdjacentTile(ctx, walkmap, ctx.PlayerPosition.X, ctx.PlayerPosition.Y);
 
@@ -287,7 +287,7 @@ public sealed class LootCorpseTask : BotTask
                     : (0, 0);
 
                 _pending = _queue.Enqueue(
-                    DragLeftAction.ToTile(_mouse, fromX, fromY, toTile, ctx.Profile), this);
+                    DragLeftAction.ToTile(_mouse, loc.Value.X, loc.Value.Y, toTile, ctx.Profile), this);
                 _afterDelay = MediumDelay;
                 Console.WriteLine($"[Loot] Dropped floor loot at ({toTile.Item1},{toTile.Item2})");
                 return;
@@ -298,14 +298,15 @@ public sealed class LootCorpseTask : BotTask
         _nextStep = RandomDelayFrom(ShortDelay);
     }
 
-    private void ExecuteBagCheck(BotContext ctx, Mat lootArea)
+    private void ExecuteBagCheck(BotContext ctx)
     {
-        var bagLoc = ItemFinder.FindItemInArea(lootArea, ctx.BagTemplate, new Rect(0, 0, lootArea.Width, lootArea.Height));
+        var lootRect = ctx.Profile.LootRect.ToCvRect();
+        var bagLoc = ItemFinder.FindItemInArea(ctx.CurrentFrameGray, ctx.BagTemplate, lootRect, LootMatchConfidence);
 
         if (bagLoc != null)
         {
             _pending = _queue.Enqueue(
-                new RightClickScreenAction(_mouse, ctx.Profile.LootRect.X + bagLoc.Value.X, ctx.Profile.LootRect.Y + bagLoc.Value.Y), this);
+                new RightClickScreenAction(_mouse, bagLoc.Value.X, bagLoc.Value.Y), this);
             _afterDelay = LongDelay;
             Console.WriteLine("[Loot] Opened bag, re-looting");
 
@@ -334,7 +335,7 @@ public sealed class LootCorpseTask : BotTask
             _pending = _queue.Enqueue(DragLeftAction.FromTiles(_mouse, fromTile, toTile, ctx.Profile), this);
             _afterDelay = ShortDelay;
             _corpseThrown = true;
-            return; // wait for drag to complete before finishing
+            return;
         }
 
         ctx.Corpses.Pop();
