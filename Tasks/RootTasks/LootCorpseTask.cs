@@ -36,7 +36,6 @@ public sealed class LootCorpseTask : BotTask
     private bool _floorLootDone;
     private bool _bagChecked;
     private bool _waitedNextToCorpse;
-    private bool _bagOpenedForGold;
     private bool _corpseThrown;
 
     private static readonly TimeSpan MaxLootTime = TimeSpan.FromSeconds(15);
@@ -67,7 +66,7 @@ public sealed class LootCorpseTask : BotTask
         }
 
         _targetCorpse = ctx.Corpses.Peek();
-        Console.WriteLine($"[Loot] Target corpse at {_targetCorpse.X},{_targetCorpse.Y}");
+        Console.WriteLine($"[Loot] Target corpse at {_targetCorpse.X},{_targetCorpse.Y} (OpenBags={ctx.Profile.OpenBags})");
     }
 
     protected override void Execute(BotContext ctx)
@@ -238,23 +237,14 @@ public sealed class LootCorpseTask : BotTask
         var bpRect = ctx.Profile.BpRect.ToCvRect();
         bool backpackEmpty = ItemFinder.IsBackpackEmpty(ctx.CurrentFrameGray, ctx.BackpackTemplate, bpRect);
 
-        var bagLoc = ItemFinder.FindItemInArea(
+        // Only skip the bag icon slot — do not use bag/gold confidence comparison (too aggressive).
+        (int X, int Y)? bagSlot = ItemFinder.FindItemInArea(
             ctx.CurrentFrameGray, ctx.BagTemplate, lootRect, LootMatchConfidence, out var bagConf);
 
-        var gold = ItemFinder.FindBestGoldInCorpse(
-            ctx.CurrentFrameGray,
-            ctx.LootTemplates,
-            ctx.BagTemplate,
-            lootRect,
-            LootMatchConfidence,
-            Console.WriteLine)
-            ?? ItemFinder.FindBestGoldInCorpse(
-                ctx.CurrentFrameGray,
-                ctx.LootTemplates,
-                ctx.BagTemplate,
-                lootRect,
-                0.72,
-                Console.WriteLine);
+        var gold = ItemFinder.FindBestTemplateMatch(
+                ctx.CurrentFrameGray, ctx.LootTemplates, lootRect, LootMatchConfidence, bagSlot)
+            ?? ItemFinder.FindBestTemplateMatch(
+                ctx.CurrentFrameGray, ctx.LootTemplates, lootRect, 0.72, bagSlot);
 
         if (gold != null)
         {
@@ -274,8 +264,8 @@ public sealed class LootCorpseTask : BotTask
                 ? ctx.Profile.BpRect.Y + ctx.Profile.BpRect.H - 20
                 : ctx.Profile.BpRect.Y + 20;
 
-            if (bagLoc != null)
-                Console.WriteLine($"[Loot] Bag at ({bagLoc.Value.X},{bagLoc.Value.Y}) conf={bagConf:F2}, looting gold at ({gold.Value.X},{gold.Value.Y})");
+            if (bagSlot != null)
+                Console.WriteLine($"[Loot] Bag slot at ({bagSlot.Value.X},{bagSlot.Value.Y}) conf={bagConf:F2}, gold at ({gold.Value.X},{gold.Value.Y})");
 
             Console.WriteLine($"[Loot] Dragging gold from ({gold.Value.X},{gold.Value.Y}) to bp ({dropX},{dropY}), conf={gold.Value.Confidence:F2}");
             _pending = _queue.Enqueue(new CtrlDragAction(_mouse, gold.Value.X, gold.Value.Y, dropX, dropY), this);
@@ -283,17 +273,11 @@ public sealed class LootCorpseTask : BotTask
             return;
         }
 
-        if (bagLoc != null && ctx.Profile.OpenBags && !_bagOpenedForGold)
-        {
-            Console.WriteLine($"[Loot] No surface gold, opening bag at ({bagLoc.Value.X},{bagLoc.Value.Y}) conf={bagConf:F2}");
-            _pending = _queue.Enqueue(
-                new RightClickScreenAction(_mouse, bagLoc.Value.X, bagLoc.Value.Y), this);
-            _afterDelay = LongDelay;
-            _bagOpenedForGold = true;
-            return;
-        }
+        if (bagSlot != null)
+            Console.WriteLine($"[Loot] No surface gold (bag at {bagSlot.Value.X},{bagSlot.Value.Y}, OpenBags={ctx.Profile.OpenBags})");
+        else
+            Console.WriteLine("[Loot] No gold found in corpse window");
 
-        Console.WriteLine("[Loot] No gold found in corpse window");
         _goldLooted = true;
         _nextStep = RandomDelayFrom(ShortDelay);
     }
