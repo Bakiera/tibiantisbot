@@ -11,7 +11,7 @@ internal static class Program
     [STAThread]
     static void Main()
     {
-        Console.WriteLine("[TBot] Build 2026-07-13b — loot food/gold fix");
+        Console.WriteLine("[TBot] Build 2026-07-13c — loot gold with bag in corpse");
         Application.SetCompatibleTextRenderingDefault(false);
 
         var ctx = new BotContext();

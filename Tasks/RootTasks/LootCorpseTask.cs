@@ -237,12 +237,19 @@ public sealed class LootCorpseTask : BotTask
         var bpRect = ctx.Profile.BpRect.ToCvRect();
         bool backpackEmpty = ItemFinder.IsBackpackEmpty(ctx.CurrentFrameGray, ctx.BackpackTemplate, bpRect);
 
-        foreach (var loot in ctx.LootTemplates)
-        {
-            var loc = ItemFinder.FindItemInArea(
-                ctx.CurrentFrameGray, loot, lootRect, LootMatchConfidence, out var conf);
-            if (loc == null) continue;
+        var bagLoc = ItemFinder.FindItemInArea(
+            ctx.CurrentFrameGray, ctx.BagTemplate, lootRect, LootMatchConfidence);
+        var excludePoints = bagLoc != null ? new[] { bagLoc.Value } : Array.Empty<(int, int)>();
 
+        var gold = ItemFinder.FindBestItemInArea(
+            ctx.CurrentFrameGray,
+            ctx.LootTemplates,
+            lootRect,
+            LootMatchConfidence,
+            excludePoints);
+
+        if (gold != null)
+        {
             if (ctx.Profile.OpenBags &&
                 ItemFinder.IsBackpackFull(ctx.CurrentFrameGray, ctx.BackpackTemplate, bpRect) &&
                 ItemFinder.IsGoldStackFull(ctx.CurrentFrameGray, ctx.OneHundredGold, bpRect))
@@ -259,8 +266,11 @@ public sealed class LootCorpseTask : BotTask
                 ? ctx.Profile.BpRect.Y + ctx.Profile.BpRect.H - 20
                 : ctx.Profile.BpRect.Y + 20;
 
-            Console.WriteLine($"[Loot] Dragging gold from ({loc.Value.X},{loc.Value.Y}) to bp ({dropX},{dropY}), conf={conf:F2}");
-            _pending = _queue.Enqueue(new CtrlDragAction(_mouse, loc.Value.X, loc.Value.Y, dropX, dropY), this);
+            if (bagLoc != null)
+                Console.WriteLine($"[Loot] Bag at ({bagLoc.Value.X},{bagLoc.Value.Y}), looting gold separately");
+
+            Console.WriteLine($"[Loot] Dragging gold from ({gold.Value.X},{gold.Value.Y}) to bp ({dropX},{dropY}), conf={gold.Value.Confidence:F2}");
+            _pending = _queue.Enqueue(new CtrlDragAction(_mouse, gold.Value.X, gold.Value.Y, dropX, dropY), this);
             _afterDelay = MediumDelay;
             return;
         }

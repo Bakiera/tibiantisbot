@@ -7,43 +7,87 @@ public static class ItemFinder
 {
     public static (int X, int Y)? FindItemInArea(Mat frame, Mat targetTemplate, Rect searchRect, double minConfidence = 0.90)
     {
-        using var searchArea = new Mat(frame, searchRect);
-        using var result = searchArea.MatchTemplate(targetTemplate, TemplateMatchModes.CCoeffNormed);
-
-        Cv2.MinMaxLoc(result, out _, out double maxVal, out _, out Point maxLoc);
-
-        if (maxVal >= minConfidence)
-        {
-            var localCenter = new Point(
-                maxLoc.X + targetTemplate.Width / 2,
-                maxLoc.Y + targetTemplate.Height / 2);
-
-            int X = searchRect.X + localCenter.X;
-            int Y = searchRect.Y + localCenter.Y;
-            return (X, Y);
-        }
-
-        return null;
+        return FindItemInArea(frame, targetTemplate, searchRect, minConfidence, out _);
     }
 
     public static (int X, int Y)? FindItemInArea(Mat frame, Mat targetTemplate, Rect searchRect, double minConfidence, out double confidence)
     {
-        using var searchArea = new Mat(frame, searchRect);
-        using var result = searchArea.MatchTemplate(targetTemplate, TemplateMatchModes.CCoeffNormed);
-
-        Cv2.MinMaxLoc(result, out _, out confidence, out _, out Point maxLoc);
-
-        if (confidence >= minConfidence)
+        var matches = FindAllItemsInArea(frame, targetTemplate, searchRect, minConfidence);
+        if (matches.Count == 0)
         {
+            confidence = 0;
+            return null;
+        }
+
+        var best = matches[0];
+        confidence = best.Confidence;
+        return (best.X, best.Y);
+    }
+
+    public static (int X, int Y, double Confidence)? FindBestItemInArea(
+        Mat frame,
+        IEnumerable<Mat> templates,
+        Rect searchRect,
+        double minConfidence,
+        IEnumerable<(int X, int Y)>? excludePoints = null,
+        int excludeRadius = 24)
+    {
+        (int X, int Y, double Confidence)? best = null;
+        var excludes = excludePoints?.ToList() ?? [];
+
+        foreach (var template in templates)
+        {
+            foreach (var match in FindAllItemsInArea(frame, template, searchRect, minConfidence))
+            {
+                if (excludes.Any(p => Distance(p, (match.X, match.Y)) < excludeRadius))
+                    continue;
+
+                if (best == null || match.Confidence > best.Value.Confidence)
+                    best = (match.X, match.Y, match.Confidence);
+            }
+        }
+
+        return best;
+    }
+
+    private static List<(int X, int Y, double Confidence)> FindAllItemsInArea(
+        Mat frame, Mat targetTemplate, Rect searchRect, double minConfidence)
+    {
+        var results = new List<(int X, int Y, double Confidence)>();
+
+        using var searchArea = new Mat(frame, searchRect);
+        using var result = new Mat();
+        Cv2.MatchTemplate(searchArea, targetTemplate, result, TemplateMatchModes.CCoeffNormed);
+        using var work = result.Clone();
+
+        for (int i = 0; i < 8; i++)
+        {
+            Cv2.MinMaxLoc(work, out _, out double maxVal, out _, out Point maxLoc);
+            if (maxVal < minConfidence)
+                break;
+
             var localCenter = new Point(
                 maxLoc.X + targetTemplate.Width / 2,
                 maxLoc.Y + targetTemplate.Height / 2);
 
-            return (searchRect.X + localCenter.X, searchRect.Y + localCenter.Y);
+            results.Add((
+                searchRect.X + localCenter.X,
+                searchRect.Y + localCenter.Y,
+                maxVal));
+
+            int suppress = Math.Max(targetTemplate.Width, targetTemplate.Height) + 4;
+            Cv2.Rectangle(
+                work,
+                new Rect(maxLoc.X - suppress / 2, maxLoc.Y - suppress / 2, suppress, suppress),
+                Scalar.All(0),
+                -1);
         }
 
-        return null;
+        return results;
     }
+
+    private static double Distance((int X, int Y) a, (int X, int Y) b)
+        => Math.Sqrt((a.X - b.X) * (a.X - b.X) + (a.Y - b.Y) * (a.Y - b.Y));
 
     public static bool IsGoldStackFull(Mat frame, Mat fullStackGp, Rect backPackRect)
     {
