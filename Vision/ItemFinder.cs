@@ -24,29 +24,26 @@ public static class ItemFinder
         return (best.X, best.Y);
     }
 
-    public static (int X, int Y, double Confidence)? FindBestGoldInCorpse(
+    /// <summary>
+    /// Finds the best template match, optionally skipping a small area around one point
+    /// (e.g. bag icon position — avoids false gold match on the bag slot).
+    /// </summary>
+    public static (int X, int Y, double Confidence)? FindBestTemplateMatch(
         Mat frame,
-        IEnumerable<Mat> goldTemplates,
-        Mat bagTemplate,
+        IEnumerable<Mat> templates,
         Rect searchRect,
-        double minConfidence = 0.80,
-        Action<string>? log = null)
+        double minConfidence,
+        (int X, int Y)? skipNear = null,
+        int skipRadius = 16)
     {
         (int X, int Y, double Confidence)? best = null;
 
-        foreach (var goldTemplate in goldTemplates)
+        foreach (var template in templates)
         {
-            foreach (var match in FindAllItemsInArea(frame, goldTemplate, searchRect, minConfidence))
+            foreach (var match in FindAllItemsInArea(frame, template, searchRect, minConfidence))
             {
-                double goldConf = GetTemplateConfidenceAt(frame, goldTemplate, match.X, match.Y);
-                double bagConf = GetTemplateConfidenceAt(frame, bagTemplate, match.X, match.Y);
-
-                if (bagConf >= goldConf - 0.02 && bagConf >= minConfidence - 0.05)
-                {
-                    log?.Invoke(
-                        $"[Loot] Skip ({match.X},{match.Y}): looks like bag (bag={bagConf:F2}, gold={goldConf:F2})");
+                if (skipNear != null && Distance(skipNear.Value, (match.X, match.Y)) < skipRadius)
                     continue;
-                }
 
                 if (best == null || match.Confidence > best.Value.Confidence)
                     best = (match.X, match.Y, match.Confidence);
@@ -54,25 +51,6 @@ public static class ItemFinder
         }
 
         return best;
-    }
-
-    public static double GetTemplateConfidenceAt(Mat frame, Mat template, int centerX, int centerY)
-    {
-        int x = centerX - template.Width / 2;
-        int y = centerY - template.Height / 2;
-        var rect = new Rect(x, y, template.Width, template.Height);
-
-        if (rect.X < 0 || rect.Y < 0 || rect.Right > frame.Width || rect.Bottom > frame.Height)
-            return 0;
-
-        using var roi = new Mat(frame, rect);
-        if (roi.Width < template.Width || roi.Height < template.Height)
-            return 0;
-
-        using var result = new Mat();
-        Cv2.MatchTemplate(roi, template, result, TemplateMatchModes.CCoeffNormed);
-        Cv2.MinMaxLoc(result, out _, out double maxVal, out _, out _);
-        return maxVal;
     }
 
     private static List<(int X, int Y, double Confidence)> FindAllItemsInArea(
@@ -116,6 +94,9 @@ public static class ItemFinder
 
         return results;
     }
+
+    private static double Distance((int X, int Y) a, (int X, int Y) b)
+        => Math.Sqrt((a.X - b.X) * (a.X - b.X) + (a.Y - b.Y) * (a.Y - b.Y));
 
     public static bool IsGoldStackFull(Mat frame, Mat fullStackGp, Rect backPackRect)
     {

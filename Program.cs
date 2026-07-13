@@ -11,7 +11,7 @@ internal static class Program
     [STAThread]
     static void Main()
     {
-        Console.WriteLine("[TBot] Build 2026-07-13d — gold vs bag classification");
+        Console.WriteLine("[TBot] Build 2026-07-13e — fix openbags gold loot");
         Application.SetCompatibleTextRenderingDefault(false);
 
         var ctx = new BotContext();
