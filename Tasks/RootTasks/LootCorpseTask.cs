@@ -28,7 +28,6 @@ public sealed class LootCorpseTask : BotTask
     private DateTime _startedAt;
     private DateTime _corpseOpenedAt = DateTime.MinValue;
 
-    // Phase flags
     private bool _waitingCorpseOpen;
     private bool _opened;
     private bool _ate;
@@ -37,6 +36,7 @@ public sealed class LootCorpseTask : BotTask
     private bool _bagChecked;
     private bool _waitedNextToCorpse;
     private bool _corpseThrown;
+    private int _goldMissStreak;
 
     private static readonly TimeSpan MaxLootTime = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan CorpseSettleDelay = TimeSpan.FromMilliseconds(400);
@@ -46,6 +46,7 @@ public sealed class LootCorpseTask : BotTask
     private const int MediumDelay = 300;
     private const int LongDelay = 500;
     private const double LootMatchConfidence = 0.80;
+    private const int GoldMissesBeforeDone = 4;
 
     public LootCorpseTask(InputQueue queue, KeyMover keyboard, MouseMover mouse)
     {
@@ -87,7 +88,7 @@ public sealed class LootCorpseTask : BotTask
                 _waitingCorpseOpen = false;
                 _opened = true;
                 _corpseOpenedAt = DateTime.UtcNow;
-                Console.WriteLine("[Loot] Corpse opened, scanning for loot...");
+                Console.WriteLine("[Loot] Corpse opened — phase 1: food, phase 2: gold, phase 3: bags (if enabled)");
             }
 
             _nextStep = RandomDelayFrom(_afterDelay);
@@ -114,31 +115,37 @@ public sealed class LootCorpseTask : BotTask
         if (DateTime.UtcNow - _corpseOpenedAt < CorpseSettleDelay)
             return;
 
+        // Phase 1: food (always)
         if (!_ate)
         {
             ExecuteEating(ctx);
             return;
         }
 
+        // Phase 2: surface gold (always, before any bag logic)
         if (!_goldLooted)
         {
             ExecuteGoldLooting(ctx);
             return;
         }
 
-        if (ctx.Profile.OpenBags)
+        // Phase 3+ only when OpenBags enabled
+        if (!ctx.Profile.OpenBags)
         {
-            if (!_floorLootDone)
-            {
-                ExecuteFloorLootDrop(ctx);
-                return;
-            }
+            ExecuteCleanup(ctx);
+            return;
+        }
 
-            if (!_bagChecked)
-            {
-                ExecuteBagCheck(ctx);
-                return;
-            }
+        if (!_floorLootDone)
+        {
+            ExecuteFloorLootDrop(ctx);
+            return;
+        }
+
+        if (!_bagChecked)
+        {
+            ExecuteBagCheck(ctx);
+            return;
         }
 
         ExecuteCleanup(ctx);
@@ -237,17 +244,16 @@ public sealed class LootCorpseTask : BotTask
         var bpRect = ctx.Profile.BpRect.ToCvRect();
         bool backpackEmpty = ItemFinder.IsBackpackEmpty(ctx.CurrentFrameGray, ctx.BackpackTemplate, bpRect);
 
-        // Only skip the bag icon slot — do not use bag/gold confidence comparison (too aggressive).
-        (int X, int Y)? bagSlot = ItemFinder.FindItemInArea(
-            ctx.CurrentFrameGray, ctx.BagTemplate, lootRect, LootMatchConfidence, out var bagConf);
-
-        var gold = ItemFinder.FindBestTemplateMatch(
-                ctx.CurrentFrameGray, ctx.LootTemplates, lootRect, LootMatchConfidence, bagSlot)
-            ?? ItemFinder.FindBestTemplateMatch(
-                ctx.CurrentFrameGray, ctx.LootTemplates, lootRect, 0.72, bagSlot);
+        // Search gold like food, but skip points where bag icon matches better (not nearby gold).
+        var gold = ItemFinder.FindLootExcludingBagIcon(
+                ctx.CurrentFrameGray, ctx.LootTemplates, ctx.BagTemplate, lootRect, LootMatchConfidence, Console.WriteLine)
+            ?? ItemFinder.FindLootExcludingBagIcon(
+                ctx.CurrentFrameGray, ctx.LootTemplates, ctx.BagTemplate, lootRect, 0.72, Console.WriteLine);
 
         if (gold != null)
         {
+            _goldMissStreak = 0;
+
             if (ctx.Profile.OpenBags &&
                 ItemFinder.IsBackpackFull(ctx.CurrentFrameGray, ctx.BackpackTemplate, bpRect) &&
                 ItemFinder.IsGoldStackFull(ctx.CurrentFrameGray, ctx.OneHundredGold, bpRect))
@@ -264,20 +270,21 @@ public sealed class LootCorpseTask : BotTask
                 ? ctx.Profile.BpRect.Y + ctx.Profile.BpRect.H - 20
                 : ctx.Profile.BpRect.Y + 20;
 
-            if (bagSlot != null)
-                Console.WriteLine($"[Loot] Bag slot at ({bagSlot.Value.X},{bagSlot.Value.Y}) conf={bagConf:F2}, gold at ({gold.Value.X},{gold.Value.Y})");
-
             Console.WriteLine($"[Loot] Dragging gold from ({gold.Value.X},{gold.Value.Y}) to bp ({dropX},{dropY}), conf={gold.Value.Confidence:F2}");
             _pending = _queue.Enqueue(new CtrlDragAction(_mouse, gold.Value.X, gold.Value.Y, dropX, dropY), this);
             _afterDelay = MediumDelay;
             return;
         }
 
-        if (bagSlot != null)
-            Console.WriteLine($"[Loot] No surface gold (bag at {bagSlot.Value.X},{bagSlot.Value.Y}, OpenBags={ctx.Profile.OpenBags})");
-        else
-            Console.WriteLine("[Loot] No gold found in corpse window");
+        _goldMissStreak++;
+        if (_goldMissStreak < GoldMissesBeforeDone)
+        {
+            Console.WriteLine($"[Loot] No gold yet ({_goldMissStreak}/{GoldMissesBeforeDone}), retrying...");
+            _nextStep = RandomDelayFrom(ShortDelay);
+            return;
+        }
 
+        Console.WriteLine("[Loot] Surface gold done");
         _goldLooted = true;
         _nextStep = RandomDelayFrom(ShortDelay);
     }
@@ -312,6 +319,13 @@ public sealed class LootCorpseTask : BotTask
 
     private void ExecuteBagCheck(BotContext ctx)
     {
+        if (!ctx.Profile.OpenBags)
+        {
+            Console.WriteLine("[Loot] OpenBags=false, skipping corpse bag");
+            _bagChecked = true;
+            return;
+        }
+
         var lootRect = ctx.Profile.LootRect.ToCvRect();
         var bagLoc = ItemFinder.FindItemInArea(ctx.CurrentFrameGray, ctx.BagTemplate, lootRect, LootMatchConfidence);
 
@@ -320,9 +334,10 @@ public sealed class LootCorpseTask : BotTask
             _pending = _queue.Enqueue(
                 new RightClickScreenAction(_mouse, bagLoc.Value.X, bagLoc.Value.Y), this);
             _afterDelay = LongDelay;
-            Console.WriteLine("[Loot] Opened bag, re-looting");
+            Console.WriteLine($"[Loot] Phase 3: opening corpse bag at ({bagLoc.Value.X},{bagLoc.Value.Y})");
 
             _goldLooted = false;
+            _goldMissStreak = 0;
             _floorLootDone = false;
             return;
         }

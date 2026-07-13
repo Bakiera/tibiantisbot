@@ -227,6 +227,7 @@ public partial class MainForm : Form
         {
             ApplyUiToProfile();
             ProfileStore.Save(Profile);
+            Console.WriteLine($"[UI] Profile saved — AttackMonsters={Profile.AttackMonsters}, OpenBags={Profile.OpenBags}");
             _controller.Start();
         });
         var btnStop = MakeButton("Stop Bot", (s, e) => _controller.Stop());

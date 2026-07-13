@@ -53,6 +53,58 @@ public static class ItemFinder
         return best;
     }
 
+    /// <summary>
+    /// Finds loot (gold) in corpse window. Skips a candidate only when bag template
+    /// matches better than the loot template at the same pixel (bag false-positive).
+    /// </summary>
+    public static (int X, int Y, double Confidence)? FindLootExcludingBagIcon(
+        Mat frame,
+        IEnumerable<Mat> lootTemplates,
+        Mat bagTemplate,
+        Rect searchRect,
+        double minConfidence,
+        Action<string>? log = null)
+    {
+        foreach (var lootTemplate in lootTemplates)
+        {
+            foreach (var match in FindAllItemsInArea(frame, lootTemplate, searchRect, minConfidence))
+            {
+                double lootConf = GetTemplateConfidenceAt(frame, lootTemplate, match.X, match.Y);
+                double bagConf = GetTemplateConfidenceAt(frame, bagTemplate, match.X, match.Y);
+
+                if (bagConf > lootConf + 0.03)
+                {
+                    log?.Invoke(
+                        $"[Loot] Skip ({match.X},{match.Y}): bag icon (bag={bagConf:F2} > gold={lootConf:F2})");
+                    continue;
+                }
+
+                return (match.X, match.Y, match.Confidence);
+            }
+        }
+
+        return null;
+    }
+
+    public static double GetTemplateConfidenceAt(Mat frame, Mat template, int centerX, int centerY)
+    {
+        int x = centerX - template.Width / 2;
+        int y = centerY - template.Height / 2;
+        var rect = new Rect(x, y, template.Width, template.Height);
+
+        if (rect.X < 0 || rect.Y < 0 || rect.Right > frame.Width || rect.Bottom > frame.Height)
+            return 0;
+
+        using var roi = new Mat(frame, rect);
+        if (roi.Width < template.Width || roi.Height < template.Height)
+            return 0;
+
+        using var result = new Mat();
+        Cv2.MatchTemplate(roi, template, result, TemplateMatchModes.CCoeffNormed);
+        Cv2.MinMaxLoc(result, out _, out double maxVal, out _, out _);
+        return maxVal;
+    }
+
     private static List<(int X, int Y, double Confidence)> FindAllItemsInArea(
         Mat frame, Mat targetTemplate, Rect searchRect, double minConfidence)
     {
