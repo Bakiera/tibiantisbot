@@ -88,7 +88,7 @@ public sealed class LootCorpseTask : BotTask
                 _waitingCorpseOpen = false;
                 _opened = true;
                 _corpseOpenedAt = DateTime.UtcNow;
-                Console.WriteLine("[Loot] Corpse opened — phase 1: food, phase 2: gold, phase 3: bags (if enabled)");
+                Console.WriteLine("[Loot] Corpse opened — phase 1: gold, phase 2: food, phase 3: bags (if enabled)");
             }
 
             _nextStep = RandomDelayFrom(_afterDelay);
@@ -115,17 +115,17 @@ public sealed class LootCorpseTask : BotTask
         if (DateTime.UtcNow - _corpseOpenedAt < CorpseSettleDelay)
             return;
 
-        // Phase 1: food (always)
-        if (!_ate)
-        {
-            ExecuteEating(ctx);
-            return;
-        }
-
-        // Phase 2: surface gold (always, before any bag logic)
+        // Phase 1: surface gold FIRST (before food — food right-click can open bag)
         if (!_goldLooted)
         {
             ExecuteGoldLooting(ctx);
+            return;
+        }
+
+        // Phase 2: food
+        if (!_ate)
+        {
+            ExecuteEating(ctx);
             return;
         }
 
@@ -210,14 +210,15 @@ public sealed class LootCorpseTask : BotTask
     {
         var lootRect = ctx.Profile.LootRect.ToCvRect();
 
-        foreach (var food in ctx.FoodTemplates)
-        {
-            var loc = ItemFinder.FindItemInArea(
-                ctx.CurrentFrameGray, food, lootRect, LootMatchConfidence, out var conf);
-            if (loc == null) continue;
+        var food = ItemFinder.FindBestLootInCorpse(
+                ctx.CurrentFrameGray, ctx.FoodTemplates, ctx.BagTemplate, lootRect, LootMatchConfidence, Console.WriteLine)
+            ?? ItemFinder.FindBestLootInCorpse(
+                ctx.CurrentFrameGray, ctx.FoodTemplates, ctx.BagTemplate, lootRect, 0.72, Console.WriteLine);
 
-            Console.WriteLine($"[Loot] Eating food at ({loc.Value.X},{loc.Value.Y}), conf={conf:F2}");
-            _pending = _queue.Enqueue(new RightClickScreenAction(_mouse, loc.Value.X, loc.Value.Y), this);
+        if (food != null)
+        {
+            Console.WriteLine($"[Loot] Eating food at ({food.Value.X},{food.Value.Y}), conf={food.Value.Confidence:F2}");
+            _pending = _queue.Enqueue(new RightClickScreenAction(_mouse, food.Value.X, food.Value.Y), this);
             _afterDelay = MediumDelay;
             return;
         }
@@ -244,10 +245,9 @@ public sealed class LootCorpseTask : BotTask
         var bpRect = ctx.Profile.BpRect.ToCvRect();
         bool backpackEmpty = ItemFinder.IsBackpackEmpty(ctx.CurrentFrameGray, ctx.BackpackTemplate, bpRect);
 
-        // Search gold like food, but skip points where bag icon matches better (not nearby gold).
-        var gold = ItemFinder.FindLootExcludingBagIcon(
+        var gold = ItemFinder.FindBestLootInCorpse(
                 ctx.CurrentFrameGray, ctx.LootTemplates, ctx.BagTemplate, lootRect, LootMatchConfidence, Console.WriteLine)
-            ?? ItemFinder.FindLootExcludingBagIcon(
+            ?? ItemFinder.FindBestLootInCorpse(
                 ctx.CurrentFrameGray, ctx.LootTemplates, ctx.BagTemplate, lootRect, 0.72, Console.WriteLine);
 
         if (gold != null)
@@ -327,7 +327,7 @@ public sealed class LootCorpseTask : BotTask
         }
 
         var lootRect = ctx.Profile.LootRect.ToCvRect();
-        var bagLoc = ItemFinder.FindItemInArea(ctx.CurrentFrameGray, ctx.BagTemplate, lootRect, LootMatchConfidence);
+        var bagLoc = ItemFinder.FindBagInCorpse(ctx.CurrentFrameGray, ctx.BagTemplate, lootRect);
 
         if (bagLoc != null)
         {
