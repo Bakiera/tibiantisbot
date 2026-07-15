@@ -6,6 +6,7 @@ namespace Bot.Navigation;
 
 public sealed class AStar
 {
+    // Cardinal-only movement (no diagonals — avoids numpad 1/3/7/9 chat leakage).
     // dx, dy, cost
     private readonly (int dx, int dy, int cost)[] moves = new[]
     {
@@ -13,11 +14,6 @@ public sealed class AStar
         (-1,  0, 1), // W
         ( 0, -1, 1), // N
         ( 0,  1, 1), // S
-
-        ( 1, -1, 3), // NE
-        (-1, -1, 3), // NW
-        ( 1,  1, 3), // SE
-        (-1,  1, 3), // SW
     };
 
     // Reuse buffers to avoid allocations
@@ -29,9 +25,8 @@ public sealed class AStar
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static int Heur(int ax, int ay, int gx, int gy)
     {
-        int dx = Math.Abs(ax - gx);
-        int dy = Math.Abs(ay - gy);
-        return Math.Max(dx, dy); // diagonal-friendly heuristic
+        // Manhattan — matches cardinal-only moves
+        return Math.Abs(ax - gx) + Math.Abs(ay - gy);
     }
 
     public List<(int x, int y)> FindPath(bool[,] walkable, (int x, int y) start, (int x, int y) goal)

@@ -17,28 +17,19 @@ public sealed class KeyMover
     private const uint WM_KEYDOWN = 0x0100;
     private const uint WM_KEYUP = 0x0101;
 
-    // Virtual key codes for arrow keys
+    // Virtual key codes for arrow keys (cardinal-only — no numpad diagonals)
     private const ushort VK_UP = 0x26;
     private const ushort VK_DOWN = 0x28;
     private const ushort VK_LEFT = 0x25;
     private const ushort VK_RIGHT = 0x27;
-    private const ushort VK_NUMPAD7 = 0x67; // NW
-    private const ushort VK_NUMPAD9 = 0x69; // NE
-    private const ushort VK_NUMPAD1 = 0x61; // SW
-    private const ushort VK_NUMPAD3 = 0x63; // SE
 
-    // Map movement deltas → key codes
+    // Map movement deltas → key codes (NSEW only)
     private static readonly Dictionary<(int dx, int dy), ushort> Directions = new()
     {
         { ( 1,  0), VK_RIGHT },
         { (-1,  0), VK_LEFT },
         { ( 0, -1), VK_UP },
         { ( 0,  1), VK_DOWN },
-
-        { ( 1, -1), VK_NUMPAD9 }, // NE
-        { (-1, -1), VK_NUMPAD7 }, // NW
-        { ( 1,  1), VK_NUMPAD3 }, // SE
-        { (-1,  1), VK_NUMPAD1 }, // SW
     };
 
     private const uint WM_CHAR = 0x0102;
