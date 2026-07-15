@@ -37,6 +37,7 @@ public sealed class LootCorpseTask : BotTask
     private bool _waitedNextToCorpse;
     private bool _corpseThrown;
     private int _goldMissStreak;
+    private int _foodEatAttempts;
 
     private static readonly TimeSpan MaxLootTime = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan CorpseSettleDelay = TimeSpan.FromMilliseconds(400);
@@ -47,6 +48,8 @@ public sealed class LootCorpseTask : BotTask
     private const int LongDelay = 500;
     private const double LootMatchConfidence = 0.80;
     private const int GoldMissesBeforeDone = 4;
+    /// <summary>Initial eat + one retry. Stops looping when full (food stays on corpse).</summary>
+    private const int MaxFoodEatAttempts = 2;
 
     public LootCorpseTask(InputQueue queue, KeyMover keyboard, MouseMover mouse)
     {
@@ -217,7 +220,20 @@ public sealed class LootCorpseTask : BotTask
 
         if (food != null)
         {
-            Console.WriteLine($"[Loot] Eating food at ({food.Value.X},{food.Value.Y}), conf={food.Value.Confidence:F2}");
+            // Character full: food stays visible — limit retries instead of looping until loot timeout.
+            if (_foodEatAttempts >= MaxFoodEatAttempts)
+            {
+                Console.WriteLine(
+                    $"[Loot] Food still present after {_foodEatAttempts} eat attempts (likely full) — skipping");
+                _ate = true;
+                _nextStep = RandomDelayFrom(ShortDelay);
+                return;
+            }
+
+            _foodEatAttempts++;
+            Console.WriteLine(
+                $"[Loot] Eating food at ({food.Value.X},{food.Value.Y}), conf={food.Value.Confidence:F2} " +
+                $"(attempt {_foodEatAttempts}/{MaxFoodEatAttempts})");
             _pending = _queue.Enqueue(new RightClickScreenAction(_mouse, food.Value.X, food.Value.Y), this);
             _afterDelay = MediumDelay;
             return;
