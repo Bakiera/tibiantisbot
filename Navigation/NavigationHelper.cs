@@ -104,6 +104,53 @@ public static class NavigationHelper
             walk[y, x] = true;
     }
 
+    /// <summary>
+    /// One cardinal step toward <paramref name="to"/>. Used when A* fails (e.g. recorded path
+    /// skips tiles like 1301→1303). Prefers walkable tiles; falls back to trusting the recording.
+    /// </summary>
+    public static (int x, int y)? PickGreedyCardinalStep(
+        (int x, int y) from, (int x, int y) to, bool[,]? walk = null)
+    {
+        int dx = Math.Sign(to.x - from.x);
+        int dy = Math.Sign(to.y - from.y);
+        if (dx == 0 && dy == 0)
+            return null;
+
+        var candidates = new List<(int x, int y)>(2);
+        if (dx != 0 && dy != 0)
+        {
+            if (Math.Abs(to.x - from.x) >= Math.Abs(to.y - from.y))
+            {
+                candidates.Add((from.x + dx, from.y));
+                candidates.Add((from.x, from.y + dy));
+            }
+            else
+            {
+                candidates.Add((from.x, from.y + dy));
+                candidates.Add((from.x + dx, from.y));
+            }
+        }
+        else if (dx != 0)
+            candidates.Add((from.x + dx, from.y));
+        else
+            candidates.Add((from.x, from.y + dy));
+
+        foreach (var c in candidates)
+        {
+            if (walk == null)
+                return c;
+
+            int h = walk.GetLength(0);
+            int w = walk.GetLength(1);
+            if (c.x < 0 || c.y < 0 || c.x >= w || c.y >= h)
+                continue;
+            if (walk[c.y, c.x])
+                return c;
+        }
+
+        return candidates[0];
+    }
+
     public static bool IsAdjacent(int px, int py, int tx, int ty) =>
         Math.Abs(px - tx) <= 1 && Math.Abs(py - ty) <= 1;
 

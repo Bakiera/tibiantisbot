@@ -126,6 +126,16 @@ public sealed class WalkToCoordinateTask : SubTask
             return;
         }
 
+        var greedy = NavigationHelper.PickGreedyCardinalStep(
+            (player.Item1, player.Item2), (_target.x, _target.y), walkmap);
+        if (greedy != null)
+        {
+            Console.WriteLine(
+                $"[{Name}] A* failed, greedy step toward ({_target.x},{_target.y})");
+            EnqueueStep(ctx, (player.Item1, player.Item2), greedy.Value);
+            return;
+        }
+
         Fail($"No path to ({_target.x},{_target.y},{_target.z}) from ({player.Item1},{player.Item2})");
     }
 

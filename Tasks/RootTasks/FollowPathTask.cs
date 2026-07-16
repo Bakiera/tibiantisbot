@@ -63,7 +63,8 @@ public sealed class FollowPathTask : BotTask
 
             if (_currentSubTask.Failed)
             {
-                if (completedWp?.Type is WaypointType.Step or WaypointType.RightClick or WaypointType.UseItem)
+                if (completedWp?.Type is WaypointType.Move or WaypointType.Step
+                    or WaypointType.RightClick or WaypointType.UseItem)
                 {
                     Console.WriteLine(
                         $"[FollowPath] Subtask failed, retrying waypoint {_repo.CurrentIndex + 1}/{_repo.Waypoints.Count}");
