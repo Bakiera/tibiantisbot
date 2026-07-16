@@ -57,8 +57,17 @@ public sealed class KeyMover
 
     public async Task StepTowardsAsync((int x, int y) from, (int x, int y) to, IntPtr handle, CancellationToken ct)
     {
-        int dx = to.x - from.x;
-        int dy = to.y - from.y;
+        int dx = Math.Sign(to.x - from.x);
+        int dy = Math.Sign(to.y - from.y);
+
+        // Never diagonal — one arrow key per step (no numpad 1/3/7/9 skosy).
+        if (dx != 0 && dy != 0)
+        {
+            if (Math.Abs(to.x - from.x) >= Math.Abs(to.y - from.y))
+                dy = 0;
+            else
+                dx = 0;
+        }
 
         if (Directions.TryGetValue((dx, dy), out var vk))
             await PressKeyAsync(vk, handle, ct);
