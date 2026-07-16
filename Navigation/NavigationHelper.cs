@@ -92,6 +92,18 @@ public static class NavigationHelper
         return best;
     }
 
+    public static bool IsCardinalAdjacent(int ax, int ay, int bx, int by) =>
+        Math.Abs(ax - bx) + Math.Abs(ay - by) == 1;
+
+    /// <summary>Waypoint tiles may be mis-tagged on the minimap — allow pathing onto the goal.</summary>
+    public static void EnsureWalkable(bool[,] walk, int x, int y)
+    {
+        int h = walk.GetLength(0);
+        int w = walk.GetLength(1);
+        if (x >= 0 && y >= 0 && x < w && y < h)
+            walk[y, x] = true;
+    }
+
     public static bool IsAdjacent(int px, int py, int tx, int ty) =>
         Math.Abs(px - tx) <= 1 && Math.Abs(py - ty) <= 1;
 
