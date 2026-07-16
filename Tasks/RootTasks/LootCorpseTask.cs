@@ -259,7 +259,7 @@ public sealed class LootCorpseTask : BotTask
 
         var lootRect = ctx.Profile.LootRect.ToCvRect();
         var bpRect = ctx.Profile.BpRect.ToCvRect();
-        bool backpackEmpty = ItemFinder.IsBackpackEmpty(ctx.CurrentFrameGray, ctx.BackpackTemplate, bpRect);
+        bool bp1Full = ItemFinder.IsBackpackFull(ctx.CurrentFrameGray, ctx.BackpackTemplate, bpRect);
 
         var gold = ItemFinder.FindBestLootInCorpse(
                 ctx.CurrentFrameGray, ctx.LootTemplates, ctx.BagTemplate, lootRect, LootMatchConfidence, Console.WriteLine)
@@ -270,8 +270,22 @@ public sealed class LootCorpseTask : BotTask
         {
             _goldMissStreak = 0;
 
+            // Prefer second backpack when BP1 is full and BpRect2 is configured in Setup.
+            if (bp1Full && ctx.Profile.BpRect2.IsValid)
+            {
+                var bp2 = ctx.Profile.BpRect2;
+                var bp2Cv = bp2.ToCvRect();
+                bool bp2Empty = ItemFinder.IsBackpackEmpty(ctx.CurrentFrameGray, ctx.BackpackTemplate, bp2Cv);
+                var (dropX2, dropY2) = GoldDropPoint(bp2, bp2Empty);
+                Console.WriteLine(
+                    $"[Loot] BP1 full — dragging gold from ({gold.Value.X},{gold.Value.Y}) to bp2 ({dropX2},{dropY2}), conf={gold.Value.Confidence:F2}");
+                _pending = _queue.Enqueue(new CtrlDragAction(_mouse, gold.Value.X, gold.Value.Y, dropX2, dropY2), this);
+                _afterDelay = MediumDelay;
+                return;
+            }
+
             if (ctx.Profile.OpenBags &&
-                ItemFinder.IsBackpackFull(ctx.CurrentFrameGray, ctx.BackpackTemplate, bpRect) &&
+                bp1Full &&
                 ItemFinder.IsGoldStackFull(ctx.CurrentFrameGray, ctx.OneHundredGold, bpRect))
             {
                 _openBagSub = new OpenNextBackpackTask(ctx.Profile, _queue, _mouse, this);
@@ -279,12 +293,8 @@ public sealed class LootCorpseTask : BotTask
                 return;
             }
 
-            int dropX = backpackEmpty
-                ? ctx.Profile.BpRect.X + ctx.Profile.BpRect.W - 20
-                : ctx.Profile.BpRect.X + 20;
-            int dropY = backpackEmpty
-                ? ctx.Profile.BpRect.Y + ctx.Profile.BpRect.H - 20
-                : ctx.Profile.BpRect.Y + 20;
+            bool backpackEmpty = ItemFinder.IsBackpackEmpty(ctx.CurrentFrameGray, ctx.BackpackTemplate, bpRect);
+            var (dropX, dropY) = GoldDropPoint(ctx.Profile.BpRect, backpackEmpty);
 
             Console.WriteLine($"[Loot] Dragging gold from ({gold.Value.X},{gold.Value.Y}) to bp ({dropX},{dropY}), conf={gold.Value.Confidence:F2}");
             _pending = _queue.Enqueue(new CtrlDragAction(_mouse, gold.Value.X, gold.Value.Y, dropX, dropY), this);
@@ -304,6 +314,11 @@ public sealed class LootCorpseTask : BotTask
         _goldLooted = true;
         _nextStep = RandomDelayFrom(ShortDelay);
     }
+
+    private static (int X, int Y) GoldDropPoint(RectDto bp, bool empty) =>
+        empty
+            ? (bp.X + bp.W - 20, bp.Y + bp.H - 20)
+            : (bp.X + 20, bp.Y + 20);
 
     private void ExecuteFloorLootDrop(BotContext ctx)
     {
