@@ -635,6 +635,7 @@ public partial class MainForm : Form
 
         AddRectRow("GameWindow", () => Profile.GameWindowRect, v => Profile.GameWindowRect = v);
         AddRectRow("Backpack", () => Profile.BpRect, v => Profile.BpRect = v);
+        AddRectRow("Backpack 2", () => Profile.BpRect2, v => Profile.BpRect2 = v);
         AddRectRow("Tools", () => Profile.ToolsRect, v => Profile.ToolsRect = v);
         AddRectRow("Loot", () => Profile.LootRect, v => Profile.LootRect = v);
         AddRectRow("UH", () => Profile.UhRect, v => Profile.UhRect = v);

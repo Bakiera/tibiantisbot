@@ -11,7 +11,7 @@ internal static class Program
     [STAThread]
     static void Main()
     {
-        Console.WriteLine("[TBot] Build 2026-07-16c — greedy walk for skipped path tiles");
+        Console.WriteLine("[TBot] Build 2026-07-16d — backpack 2 gold overflow");
         Application.SetCompatibleTextRenderingDefault(false);
 
         var ctx = new BotContext();
