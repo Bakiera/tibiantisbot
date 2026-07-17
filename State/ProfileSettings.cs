@@ -11,6 +11,8 @@ public sealed class ProfileSettings
 
     public RectDto GameWindowRect { get; set; } = new();
     public RectDto BpRect { get; set; } = new();
+    /// <summary>Optional second backpack — gold is deposited here when BpRect is full.</summary>
+    public RectDto BpRect2 { get; set; } = new();
     public RectDto LootRect { get; set; } = new();
     public RectDto ToolsRect { get; set; } = new();
     public RectDto UhRect { get; set; } = new();
