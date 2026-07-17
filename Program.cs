@@ -11,7 +11,7 @@ internal static class Program
     [STAThread]
     static void Main()
     {
-        Console.WriteLine("[TBot] Build 2026-07-16d — backpack 2 gold overflow");
+        Console.WriteLine("[TBot] Build 2026-07-17a — BP2 after failed gold deposit");
         Application.SetCompatibleTextRenderingDefault(false);
 
         var ctx = new BotContext();

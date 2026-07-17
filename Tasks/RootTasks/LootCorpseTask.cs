@@ -39,6 +39,11 @@ public sealed class LootCorpseTask : BotTask
     private int _goldMissStreak;
     private int _foodEatAttempts;
 
+    /// <summary>Once set, remaining gold on this corpse goes to Backpack 2.</summary>
+    private bool _useBp2ForGold;
+    private (int X, int Y)? _lastBp1GoldFrom;
+    private int _bp1DepositFailStreak;
+
     private static readonly TimeSpan MaxLootTime = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan CorpseSettleDelay = TimeSpan.FromMilliseconds(400);
     private static readonly Random _rng = new();
@@ -50,6 +55,9 @@ public sealed class LootCorpseTask : BotTask
     private const int GoldMissesBeforeDone = 4;
     /// <summary>Initial eat + one retry. Stops looping when full (food stays on corpse).</summary>
     private const int MaxFoodEatAttempts = 2;
+    /// <summary>Same gold still in corpse after this many BP1 drags → switch to BP2.</summary>
+    private const int Bp1FailsBeforeBp2 = 2;
+    private const int SameGoldTolerancePx = 24;
 
     public LootCorpseTask(InputQueue queue, KeyMover keyboard, MouseMover mouse)
     {
@@ -259,7 +267,8 @@ public sealed class LootCorpseTask : BotTask
 
         var lootRect = ctx.Profile.LootRect.ToCvRect();
         var bpRect = ctx.Profile.BpRect.ToCvRect();
-        bool bp1Full = ItemFinder.IsBackpackFull(ctx.CurrentFrameGray, ctx.BackpackTemplate, bpRect);
+        bool bp1FullIcon = ItemFinder.IsBackpackFull(ctx.CurrentFrameGray, ctx.BackpackTemplate, bpRect);
+        bool hasBp2 = ctx.Profile.BpRect2.IsValid;
 
         var gold = ItemFinder.FindBestLootInCorpse(
                 ctx.CurrentFrameGray, ctx.LootTemplates, ctx.BagTemplate, lootRect, LootMatchConfidence, Console.WriteLine)
@@ -270,22 +279,47 @@ public sealed class LootCorpseTask : BotTask
         {
             _goldMissStreak = 0;
 
-            // Prefer second backpack when BP1 is full and BpRect2 is configured in Setup.
-            if (bp1Full && ctx.Profile.BpRect2.IsValid)
+            // IsBackpackFull only matches a backpack icon in the last slot — not "no free slots".
+            // Detect full BP1 by gold still sitting in the corpse after a BP1 drag, then switch to BP2.
+            if (!_useBp2ForGold && hasBp2)
+            {
+                if (bp1FullIcon)
+                {
+                    _useBp2ForGold = true;
+                    Console.WriteLine("[Loot] BP1 full (nested-bp icon) — switching gold to Backpack 2");
+                }
+                else if (_lastBp1GoldFrom is { } last && Near(gold.Value.X, gold.Value.Y, last.X, last.Y))
+                {
+                    _bp1DepositFailStreak++;
+                    Console.WriteLine(
+                        $"[Loot] Gold still in corpse after BP1 drag ({_bp1DepositFailStreak}/{Bp1FailsBeforeBp2})");
+                    if (_bp1DepositFailStreak >= Bp1FailsBeforeBp2)
+                    {
+                        _useBp2ForGold = true;
+                        Console.WriteLine("[Loot] BP1 rejected gold — switching to Backpack 2");
+                    }
+                }
+                else
+                {
+                    _bp1DepositFailStreak = 0;
+                }
+            }
+
+            if (_useBp2ForGold && hasBp2)
             {
                 var bp2 = ctx.Profile.BpRect2;
-                var bp2Cv = bp2.ToCvRect();
-                bool bp2Empty = ItemFinder.IsBackpackEmpty(ctx.CurrentFrameGray, ctx.BackpackTemplate, bp2Cv);
+                bool bp2Empty = ItemFinder.IsBackpackEmpty(
+                    ctx.CurrentFrameGray, ctx.BackpackTemplate, bp2.ToCvRect());
                 var (dropX2, dropY2) = GoldDropPoint(bp2, bp2Empty);
                 Console.WriteLine(
-                    $"[Loot] BP1 full — dragging gold from ({gold.Value.X},{gold.Value.Y}) to bp2 ({dropX2},{dropY2}), conf={gold.Value.Confidence:F2}");
+                    $"[Loot] Dragging gold from ({gold.Value.X},{gold.Value.Y}) to bp2 ({dropX2},{dropY2}), conf={gold.Value.Confidence:F2}");
                 _pending = _queue.Enqueue(new CtrlDragAction(_mouse, gold.Value.X, gold.Value.Y, dropX2, dropY2), this);
                 _afterDelay = MediumDelay;
                 return;
             }
 
             if (ctx.Profile.OpenBags &&
-                bp1Full &&
+                bp1FullIcon &&
                 ItemFinder.IsGoldStackFull(ctx.CurrentFrameGray, ctx.OneHundredGold, bpRect))
             {
                 _openBagSub = new OpenNextBackpackTask(ctx.Profile, _queue, _mouse, this);
@@ -297,6 +331,7 @@ public sealed class LootCorpseTask : BotTask
             var (dropX, dropY) = GoldDropPoint(ctx.Profile.BpRect, backpackEmpty);
 
             Console.WriteLine($"[Loot] Dragging gold from ({gold.Value.X},{gold.Value.Y}) to bp ({dropX},{dropY}), conf={gold.Value.Confidence:F2}");
+            _lastBp1GoldFrom = (gold.Value.X, gold.Value.Y);
             _pending = _queue.Enqueue(new CtrlDragAction(_mouse, gold.Value.X, gold.Value.Y, dropX, dropY), this);
             _afterDelay = MediumDelay;
             return;
@@ -314,6 +349,9 @@ public sealed class LootCorpseTask : BotTask
         _goldLooted = true;
         _nextStep = RandomDelayFrom(ShortDelay);
     }
+
+    private static bool Near(int x1, int y1, int x2, int y2) =>
+        Math.Abs(x1 - x2) <= SameGoldTolerancePx && Math.Abs(y1 - y2) <= SameGoldTolerancePx;
 
     private static (int X, int Y) GoldDropPoint(RectDto bp, bool empty) =>
         empty
