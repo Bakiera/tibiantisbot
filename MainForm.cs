@@ -245,7 +245,7 @@ public partial class MainForm : Form
         };
         _openBagsChk = new CheckBox
         {
-            Text = "Open bags (off = gold + food only)",
+            Text = "Open corpse bags (off = gold + food only)",
             Checked = Profile.OpenBags,
             ForeColor = Color.White,
             BackColor = Color.Transparent,

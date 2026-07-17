@@ -11,7 +11,7 @@ internal static class Program
     [STAThread]
     static void Main()
     {
-        Console.WriteLine("[TBot] Build 2026-07-17b — fix nested backpack open");
+        Console.WriteLine("[TBot] Build 2026-07-17c — nested BP open always, loot diag logs");
         Application.SetCompatibleTextRenderingDefault(false);
 
         var ctx = new BotContext();
