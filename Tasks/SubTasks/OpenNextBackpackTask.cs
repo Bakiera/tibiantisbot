@@ -10,6 +10,7 @@ public sealed class OpenNextBackpackTask : SubTask
     private readonly InputQueue _queue;
     private readonly MouseMover _mouse;
     private readonly object _owner;
+    private readonly (int X, int Y)? _clickTarget;
 
     private ActionHandle? _pending;
     private bool _clicked;
@@ -18,12 +19,18 @@ public sealed class OpenNextBackpackTask : SubTask
     private static readonly Random _rng = new();
     private readonly TimeSpan PostClickDelay = TimeSpan.FromMilliseconds(350 + _rng.Next(0, 100));
 
-    public OpenNextBackpackTask(ProfileSettings profile, InputQueue queue, MouseMover mouse, object owner)
+    public OpenNextBackpackTask(
+        ProfileSettings profile,
+        InputQueue queue,
+        MouseMover mouse,
+        object owner,
+        (int X, int Y)? clickTarget = null)
     {
         _profile = profile;
         _queue = queue;
         _mouse = mouse;
         _owner = owner;
+        _clickTarget = clickTarget;
         Name = "OpenNextBackpack";
     }
 
@@ -34,7 +41,6 @@ public sealed class OpenNextBackpackTask : SubTask
 
     protected override void Execute(BotContext ctx)
     {
-        // Wait for pending action, then set post-click delay from completion time
         if (_pending != null)
         {
             if (!_pending.IsCompleted) return;
@@ -51,11 +57,11 @@ public sealed class OpenNextBackpackTask : SubTask
             return;
         }
 
-        var bp = _profile.BpRect!;
-        int pixelX = bp.X + bp.W - 10;
-        int pixelY = bp.Y + bp.H - 10;
+        var bp = _profile.BpRect;
+        int pixelX = _clickTarget?.X ?? bp.X + bp.W - 10;
+        int pixelY = _clickTarget?.Y ?? bp.Y + bp.H - 10;
 
-        Console.WriteLine($"[Loot] Right-clicking backpack corner at ({pixelX},{pixelY})");
+        Console.WriteLine($"[Loot] Right-clicking nested backpack at ({pixelX},{pixelY})");
         _pending = _queue.Enqueue(new RightClickScreenAction(_mouse, pixelX, pixelY), _owner);
     }
 }
