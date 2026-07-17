@@ -38,6 +38,7 @@ public sealed class LootCorpseTask : BotTask
     private bool _corpseThrown;
     private int _goldMissStreak;
     private int _foodEatAttempts;
+    private bool _loggedBpOpenSkip;
 
     private static readonly TimeSpan MaxLootTime = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan CorpseSettleDelay = TimeSpan.FromMilliseconds(400);
@@ -270,13 +271,42 @@ public sealed class LootCorpseTask : BotTask
         {
             _goldMissStreak = 0;
 
-            if (ctx.Profile.OpenBags &&
-                ItemFinder.IsBackpackFull(ctx.CurrentFrameGray, ctx.BackpackTemplate, bpRect) &&
-                ItemFinder.IsGoldStackFull(ctx.CurrentFrameGray, ctx.OneHundredGold, bpRect))
+            var nestedBp = ItemFinder.FindNestedBackpack(
+                ctx.CurrentFrameGray, ctx.BackpackTemplate, bpRect);
+            var goldStack = ItemFinder.FindGoldStackInFirstSlot(
+                ctx.CurrentFrameGray, ctx.OneHundredGold, bpRect);
+
+            if (nestedBp != null && goldStack != null)
             {
-                _openBagSub = new OpenNextBackpackTask(ctx.Profile, _queue, _mouse, this);
+                Console.WriteLine(
+                    $"[Loot] Opening nested BP at ({nestedBp.Value.X},{nestedBp.Value.Y}) " +
+                    $"(bp conf={nestedBp.Value.Confidence:F2}, gold stack conf={goldStack.Value.Confidence:F2})");
+                _openBagSub = new OpenNextBackpackTask(
+                    ctx.Profile, _queue, _mouse, this, (nestedBp.Value.X, nestedBp.Value.Y));
                 _openBagSub.Tick(ctx);
                 return;
+            }
+
+            if (!_loggedBpOpenSkip)
+            {
+                _loggedBpOpenSkip = true;
+                if (nestedBp == null && goldStack == null)
+                {
+                    Console.WriteLine(
+                        "[Loot] Nested BP check: no backpack in last slot, no 100gp in first slot — dragging gold to BP1");
+                }
+                else if (nestedBp != null)
+                {
+                    Console.WriteLine(
+                        $"[Loot] Nested BP seen (conf={nestedBp.Value.Confidence:F2}) but no 100gp in first slot " +
+                        $"(best conf={goldStack?.Confidence ?? 0:F2}) — dragging gold to BP1");
+                }
+                else
+                {
+                    Console.WriteLine(
+                        $"[Loot] 100gp stack seen (conf={goldStack!.Value.Confidence:F2}) but no nested BP in last slot " +
+                        "(check Backpack.png / BpRect) — dragging gold to BP1");
+                }
             }
 
             int dropX = backpackEmpty

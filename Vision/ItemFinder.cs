@@ -129,25 +129,43 @@ public static class ItemFinder
         return results;
     }
 
-    public static bool IsGoldStackFull(Mat frame, Mat fullStackGp, Rect backPackRect)
+    private const double BpSlotMatchConfidence = 0.72;
+
+    public static Rect FirstSlotRect(Rect backPackRect) =>
+        new(backPackRect.X, backPackRect.Y, 40, 40);
+
+    public static Rect LastSlotSearchRect(Rect backPackRect) =>
+        new(
+            backPackRect.X + backPackRect.Width - 48,
+            backPackRect.Y + backPackRect.Height - 48,
+            48, 48);
+
+    /// <summary>Nested backpack icon in the last slot (lower threshold + slightly larger search area).</summary>
+    public static (int X, int Y, double Confidence)? FindNestedBackpack(
+        Mat frame, Mat backpackTemplate, Rect backPackRect)
     {
-        var rect = new Rect(backPackRect.X, backPackRect.Y, 40, 40);
-        return FindItemInArea(frame, fullStackGp, rect) != null;
+        var pos = FindItemInArea(
+            frame, backpackTemplate, LastSlotSearchRect(backPackRect), BpSlotMatchConfidence, out var conf);
+        return pos == null ? null : (pos.Value.X, pos.Value.Y, conf);
     }
 
-    public static bool IsBackpackFull(Mat frame, Mat backpackTemplate, Rect backPackRect)
+    public static (int X, int Y, double Confidence)? FindGoldStackInFirstSlot(
+        Mat frame, Mat fullStackGp, Rect backPackRect)
     {
-        var rect = new Rect(
-            backPackRect.X + backPackRect.Width - 40,
-            backPackRect.Y + backPackRect.Height - 40,
-            40, 40);
-
-        return FindItemInArea(frame, backpackTemplate, rect) != null;
+        var pos = FindItemInArea(
+            frame, fullStackGp, FirstSlotRect(backPackRect), BpSlotMatchConfidence, out var conf);
+        return pos == null ? null : (pos.Value.X, pos.Value.Y, conf);
     }
+
+    public static bool IsGoldStackFull(Mat frame, Mat fullStackGp, Rect backPackRect) =>
+        FindGoldStackInFirstSlot(frame, fullStackGp, backPackRect) != null;
+
+    public static bool IsBackpackFull(Mat frame, Mat backpackTemplate, Rect backPackRect) =>
+        FindNestedBackpack(frame, backpackTemplate, backPackRect) != null;
 
     public static bool IsBackpackEmpty(Mat frame, Mat backpackTemplate, Rect backPackRect)
     {
-        var rect = new Rect(backPackRect.X, backPackRect.Y, 40, 40);
-        return FindItemInArea(frame, backpackTemplate, rect) != null;
+        var rect = FirstSlotRect(backPackRect);
+        return FindItemInArea(frame, backpackTemplate, rect, BpSlotMatchConfidence) != null;
     }
 }
